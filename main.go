@@ -24,7 +24,7 @@ import (
 
 const (
 	DefaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
-	defaultAddressToSend = "0xAa923CA0a32D75f88138DcAc7096F665C94d6630"
+	DefaultAddressToSend = "0xAa923CA0a32D75f88138DcAc7096F665C94d6630"
 )
 
 var (
@@ -68,6 +68,8 @@ func PrepareTransactionsForPool(
 		return
 	}
 
+	fmt.Printf("\n Balance of account: %d WEI", balance.Int64())
+
 	stdInt := int(transactionsLen.Int64())
 
 	// This is a little bit naive, but may work for the experiment if account is not used elsewhere
@@ -104,15 +106,20 @@ func PrepareTransactionsForPool(
 	}
 
 	//This is very static, should be changed to above
-	gasLimit = gasLimit * 2
+	gasLimit = gasLimit * 10
 
 	// Fill the transactions, maybe sign them and then push?
 	for i := 0; i < stdInt; i++ {
 		// Make random bytes to differ tx (May not work as expected)
-		token := make([]byte, 16)
-		rand.Read(token)
-		currentTx := types.NewTransaction(nonce, AddressToSend, amount, gasLimit, gasPrice, token)
+		//token := make([]byte, 16)
+		//rand.Read(token)
+		addrToSend := AddressToSend
+		currentTx := types.NewTransaction(nonce, addrToSend, amount, gasLimit, gasPrice, nil)
 		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(ChainId), privateKey)
+
+		if i%10 == 0 {
+			fmt.Printf("\n Signed new tx, %d", i)
+		}
 
 		if nil != err {
 			err = fmt.Errorf("error occured at txId: %d of total: %d, err: %s", i, stdInt, err.Error())
@@ -143,7 +150,7 @@ func SendBulkOfSignedTransaction(
 		routinesWaitGroup sync.WaitGroup
 	)
 
-	//Lets make some sense in possible routines at once with the lock. I suggest max 10k
+	//Lets make some sense in possible routines at once with the lock. I suggest max 1k
 	minRoutinesUp := len(transactions)
 	routinesWaitGroup.Add(minRoutinesUp)
 
@@ -198,7 +205,7 @@ func defaultConfig() {
 
 	// Fallback to default address
 	if "" == addressToSend {
-		addressToSend = defaultAddressToSend
+		addressToSend = DefaultAddressToSend
 	}
 
 	AddressToSend = common.HexToAddress(addressToSend)

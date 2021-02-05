@@ -43,7 +43,7 @@ func (externalApiMock ExternalApiMock) Version(ctx context.Context) (addresses [
 
 var (
 	// it must be real endpoint, IPC is misleading because it does not need to be ipc.
-	ipcLocation = "http://35.204.0.123:8545"
+	ipcLocation = "http://34.91.225.171:8545"
 )
 
 func TestPrepareTransactionsForPool(t *testing.T) {
@@ -80,7 +80,10 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 
 	defer func() {
 		ChainId = big.NewInt(1)
+		AddressToSend = common.Address{}
 	}()
+
+	AddressToSend = common.HexToAddress(DefaultAddressToSend)
 
 	t.Run("Send 1000 transactions", func(t *testing.T) {
 		expectedLen := 1000
