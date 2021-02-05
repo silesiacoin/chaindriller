@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Motivation of this repository is to have TX Pool filled with insane numbers in geth.
@@ -54,7 +55,6 @@ func PrepareTransactionsForPool(
 	// It will panic if public key is invalid
 	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-
 	balance, err := client.PendingBalanceAt(ctx, fromAddress)
 
 	if nil != err {
@@ -103,6 +103,9 @@ func PrepareTransactionsForPool(
 		return
 	}
 
+	//This is very static, should be changed to above
+	gasLimit = gasLimit * 2
+
 	// Fill the transactions, maybe sign them and then push?
 	for i := 0; i < stdInt; i++ {
 		// Make random bytes to differ tx (May not work as expected)
@@ -133,19 +136,37 @@ func SendBulkOfSignedTransaction(
 	ctx := context.Background()
 	finalReport.Transactions = transactions
 	finalReport.Errors = make([]error, 0)
-	finalReport.TransactionHashes = make([]string, len(transactions))
+	finalReport.TransactionHashes = make([]string, 0)
+
+	var (
+		waitGroup         sync.WaitGroup
+		routinesWaitGroup sync.WaitGroup
+	)
+
+	//Lets make some sense in possible routines at once with the lock. I suggest max 10k
+	minRoutinesUp := len(transactions)
+	routinesWaitGroup.Add(minRoutinesUp)
 
 	for _, transaction := range transactions {
-		err = client.SendTransaction(ctx, transaction)
+		waitGroup.Add(1)
 
-		if nil != err {
-			finalReport.Errors = append(finalReport.Errors, err)
-			continue
-		}
+		go func(transaction *types.Transaction) {
+			routinesWaitGroup.Done()
+			routinesWaitGroup.Wait()
+			err = client.SendTransaction(ctx, transaction)
+			transactionHash := transaction.Hash()
 
-		transactionHash := transaction.Hash()
-		finalReport.TransactionHashes = append(finalReport.TransactionHashes, transactionHash.String())
+			if nil != err {
+				finalReport.Errors = append(finalReport.Errors, err)
+			}
+
+			finalReport.TransactionHashes = append(finalReport.TransactionHashes, transactionHash.String())
+			waitGroup.Done()
+		}(transaction)
 	}
+
+	routinesWaitGroup.Wait()
+	waitGroup.Wait()
 
 	return
 }

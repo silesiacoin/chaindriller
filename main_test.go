@@ -43,7 +43,7 @@ func (externalApiMock ExternalApiMock) Version(ctx context.Context) (addresses [
 
 var (
 	// it must be real endpoint, IPC is misleading because it does not need to be ipc.
-	ipcLocation = "http://34.91.133.193:8545"
+	ipcLocation = "http://35.204.0.123:8545"
 )
 
 func TestPrepareTransactionsForPool(t *testing.T) {
@@ -72,6 +72,7 @@ func TestPrepareTransactionsForPool(t *testing.T) {
 	})
 }
 
+// One weird scenario. When gas was set to 0 whole chain had stopped mining.
 func TestSendPreparedTransactionsForPool(t *testing.T) {
 	client := newClient(ipcLocation)
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
@@ -81,8 +82,8 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 		ChainId = big.NewInt(1)
 	}()
 
-	t.Run("Send 100 transactions", func(t *testing.T) {
-		expectedLen := 50
+	t.Run("Send 1000 transactions", func(t *testing.T) {
+		expectedLen := 1000
 		transactionsLen := big.NewInt(int64(expectedLen))
 		ChainId = big.NewInt(220720)
 		err, transactions := PrepareTransactionsForPool(transactionsLen, client, privateKey)
