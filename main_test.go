@@ -41,10 +41,12 @@ func (externalApiMock ExternalApiMock) Version(ctx context.Context) (addresses [
 	return
 }
 
-func TestPrepareTransactionsForPool(t *testing.T) {
+var (
 	// it must be real endpoint, IPC is misleading because it does not need to be ipc.
-	ipcLocation := "http://34.91.133.193:8545"
+	ipcLocation = "http://34.91.133.193:8545"
+)
 
+func TestPrepareTransactionsForPool(t *testing.T) {
 	// Star client on a server
 	client := newClient(ipcLocation)
 
@@ -52,6 +54,30 @@ func TestPrepareTransactionsForPool(t *testing.T) {
 	assert.Nil(t, err)
 
 	t.Run("Prepare 50 transactions", func(t *testing.T) {
+		expectedLen := 50
+		transactionsLen := big.NewInt(int64(expectedLen))
+		err, transactions := PrepareTransactionsForPool(transactionsLen, client, privateKey)
+		assert.Nil(t, err)
+		assert.NotEmpty(t, transactions)
+		assert.Len(t, transactions, expectedLen)
+
+		t.Run("Nonce is increasing", func(t *testing.T) {
+			firstNonce := transactions[0].Nonce()
+
+			for index, transaction := range transactions {
+				nonce := transaction.Nonce()
+				assert.Equal(t, nonce, uint64(index+int(firstNonce)))
+			}
+		})
+	})
+}
+
+func TestSendPreparedTransactionsForPool(t *testing.T) {
+	client := newClient(ipcLocation)
+	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
+	assert.Nil(t, err)
+
+	t.Run("Send 100 transactions", func(t *testing.T) {
 		expectedLen := 50
 		transactionsLen := big.NewInt(int64(expectedLen))
 		err, transactions := PrepareTransactionsForPool(transactionsLen, client, privateKey)
