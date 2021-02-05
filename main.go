@@ -154,8 +154,9 @@ func SendBulkOfSignedTransaction(
 	minRoutinesUp := len(transactions)
 	routinesWaitGroup.Add(minRoutinesUp)
 
-	for _, transaction := range transactions {
+	for index, transaction := range transactions {
 		waitGroup.Add(1)
+		fmt.Printf("\nStarting routine index: %d", index)
 
 		go func(transaction *types.Transaction) {
 			routinesWaitGroup.Done()
@@ -172,7 +173,6 @@ func SendBulkOfSignedTransaction(
 		}(transaction)
 	}
 
-	routinesWaitGroup.Wait()
 	waitGroup.Wait()
 
 	return

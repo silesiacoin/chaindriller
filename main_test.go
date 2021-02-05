@@ -43,7 +43,7 @@ func (externalApiMock ExternalApiMock) Version(ctx context.Context) (addresses [
 
 var (
 	// it must be real endpoint, IPC is misleading because it does not need to be ipc.
-	ipcLocation = "http://34.91.225.171:8545"
+	ipcLocation = "http://35.204.0.123:8545"
 )
 
 func TestPrepareTransactionsForPool(t *testing.T) {
