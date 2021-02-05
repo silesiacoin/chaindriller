@@ -2,16 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-ethereum/core/types"
 	"github.com/go-ethereum/ethclient"
 	"math/big"
 	"math/rand"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Motivation of this repository is to have TX Pool filled with insane numbers in geth.
@@ -21,6 +23,7 @@ import (
 
 const (
 	defaultAddressToSend = "0xAa923CA0a32D75f88138DcAc7096F665C94d6630"
+	defaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
 )
 
 var (
@@ -34,10 +37,24 @@ func init() {
 	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
 	chainId := os.Getenv("CHAIN_ID")
 	addressToSend := os.Getenv("ADDRESS_TO_SEND")
+	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
 
-	if "" != addressToSend {
-		AddressToSend = common.HexToAddress(addressToSend)
+	if "" == privateKeySender {
+		privateKeySender = defaultPrivateKey
 	}
+
+	privateKey, err := crypto.HexToECDSA(strings.ToLower(privateKeySender))
+
+	if nil != err {
+		panic(fmt.Sprintf("Invalid private key: %s, err: %s", privateKey, err.Error()))
+	}
+
+	// Fallback to default address
+	if "" == addressToSend {
+		addressToSend = defaultAddressToSend
+	}
+
+	AddressToSend = common.HexToAddress(addressToSend)
 
 	if "" != ipcEndpoint {
 		IpcEndpoint = ipcEndpoint
@@ -62,8 +79,8 @@ func main() {
 
 func PrepareTransactionsForPool(
 	transactionsLen *big.Int,
-	account accounts.Account,
 	client *ethclient.Client,
+	privateKey *ecdsa.PrivateKey,
 ) (err error, transactions []*types.Transaction) {
 	ctx := context.Background()
 	currentProgress, err := client.SyncProgress(ctx)
@@ -72,8 +89,13 @@ func PrepareTransactionsForPool(
 		return
 	}
 
+	publicKey := privateKey.Public()
+	// It will panic if public key is invalid
+	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+
 	currentBlock := int64(currentProgress.CurrentBlock)
-	balance, err := client.BalanceAt(ctx, account.Address, big.NewInt(currentBlock))
+	balance, err := client.BalanceAt(ctx, fromAddress, big.NewInt(currentBlock))
 
 	if nil != err {
 		return
@@ -81,7 +103,7 @@ func PrepareTransactionsForPool(
 
 	// Simple check if we have balance in this account
 	if balance.Cmp(big.NewInt(0)) < 1 {
-		err = fmt.Errorf("not enough balance in account address: %s", account.Address)
+		err = fmt.Errorf("not enough balance in account address: %s", fromAddress)
 
 		return
 	}
@@ -89,7 +111,7 @@ func PrepareTransactionsForPool(
 	stdInt := int(transactionsLen.Int64())
 
 	// This is a little bit naive, but may work for the experiment if account is not used elsewhere
-	nonce, err := client.PendingNonceAt(ctx, account.Address)
+	nonce, err := client.PendingNonceAt(ctx, fromAddress)
 
 	if nil != err {
 		return
@@ -104,13 +126,17 @@ func PrepareTransactionsForPool(
 		return
 	}
 
+	dummyToken := make([]byte, 16)
+	rand.Read(dummyToken)
+
+	// Call gas limit only once
 	gasLimit, err := client.EstimateGas(ctx, ethereum.CallMsg{
-		From:     account.Address,
+		From:     fromAddress,
 		To:       &AddressToSend,
 		Gas:      uint64(0),
 		GasPrice: gasPrice,
-		Value:    nil,
-		Data:     nil,
+		Value:    amount,
+		Data:     dummyToken,
 	})
 
 	if nil != err {
@@ -120,12 +146,20 @@ func PrepareTransactionsForPool(
 	// Fill the transactions, maybe sign them and then push?
 	for i := 0; i < stdInt; i++ {
 		// Make random bytes to differ tx (May not work as expected)
-		token := make([]byte, 4)
+		token := make([]byte, 16)
 		rand.Read(token)
 		currentTx := types.NewTransaction(nonce, AddressToSend, amount, gasLimit, gasPrice, token)
-		transactions = append(transactions, currentTx)
+		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(ChainId), privateKey)
 
-		// Nonce call is done only once before the loop, may lead to problems
+		if nil != err {
+			err = fmt.Errorf("error occured at txId: %d of total: %d, err: %s", i, stdInt, err.Error())
+
+			return
+		}
+
+		transactions = append(transactions, signedTx)
+
+		// Nonce get call is done only once before the loop, may lead to problems
 		nonce++
 	}
 
