@@ -77,13 +77,24 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
 	assert.Nil(t, err)
 
+	defer func() {
+		ChainId = big.NewInt(1)
+	}()
+
 	t.Run("Send 100 transactions", func(t *testing.T) {
 		expectedLen := 50
 		transactionsLen := big.NewInt(int64(expectedLen))
+		ChainId = big.NewInt(220720)
 		err, transactions := PrepareTransactionsForPool(transactionsLen, client, privateKey)
 		assert.Nil(t, err)
 		assert.NotEmpty(t, transactions)
 		assert.Len(t, transactions, expectedLen)
+
+		err, finalReport := SendBulkOfSignedTransaction(client, transactions)
+		assert.Nil(t, err)
+		assert.Len(t, finalReport.TransactionHashes, expectedLen)
+		assert.Len(t, finalReport.Transactions, expectedLen)
+		assert.Empty(t, finalReport.Errors)
 	})
 }
 

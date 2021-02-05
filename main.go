@@ -33,44 +33,10 @@ var (
 	AddressToSend  common.Address
 )
 
-func defaultConfig() {
-	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
-	chainId := os.Getenv("CHAIN_ID")
-	addressToSend := os.Getenv("ADDRESS_TO_SEND")
-	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
-
-	if "" == privateKeySender {
-		privateKeySender = DefaultPrivateKey
-	}
-
-	privateKey, err := crypto.HexToECDSA(strings.ToLower(privateKeySender))
-
-	if nil != err {
-		panic(fmt.Sprintf("Invalid private key: %s, err: %s", privateKey, err.Error()))
-	}
-
-	// Fallback to default address
-	if "" == addressToSend {
-		addressToSend = defaultAddressToSend
-	}
-
-	AddressToSend = common.HexToAddress(addressToSend)
-
-	if "" != ipcEndpoint {
-		IpcEndpoint = ipcEndpoint
-	}
-
-	chainIdInt, err := strconv.ParseInt(chainId, 10, 64)
-
-	if nil == err && chainIdInt != ChainId.Int64() {
-		ChainId = big.NewInt(chainIdInt)
-	}
-
-	if nil != err {
-		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainId, ChainId, err.Error())
-	}
-
-	EthereumClient = newClient(IpcEndpoint)
+type FinalReport struct {
+	Errors            []error
+	Transactions      []*types.Transaction
+	TransactionHashes []string
 }
 
 func main() {
@@ -160,6 +126,30 @@ func PrepareTransactionsForPool(
 	return
 }
 
+func SendBulkOfSignedTransaction(
+	client *ethclient.Client,
+	transactions []*types.Transaction,
+) (err error, finalReport FinalReport) {
+	ctx := context.Background()
+	finalReport.Transactions = transactions
+	finalReport.Errors = make([]error, 0)
+	finalReport.TransactionHashes = make([]string, len(transactions))
+
+	for _, transaction := range transactions {
+		err = client.SendTransaction(ctx, transaction)
+
+		if nil != err {
+			finalReport.Errors = append(finalReport.Errors, err)
+			continue
+		}
+
+		transactionHash := transaction.Hash()
+		finalReport.TransactionHashes = append(finalReport.TransactionHashes, transactionHash.String())
+	}
+
+	return
+}
+
 // newClient creates a client with specified remote URL.
 func newClient(ipcEndpoint string) *ethclient.Client {
 	client, err := ethclient.Dial(ipcEndpoint)
@@ -167,4 +157,44 @@ func newClient(ipcEndpoint string) *ethclient.Client {
 		panic(fmt.Sprintf("Could not connect to ethereum node url: %s, Err: %s", ipcEndpoint, err.Error()))
 	}
 	return client
+}
+
+func defaultConfig() {
+	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
+	chainId := os.Getenv("CHAIN_ID")
+	addressToSend := os.Getenv("ADDRESS_TO_SEND")
+	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
+
+	if "" == privateKeySender {
+		privateKeySender = DefaultPrivateKey
+	}
+
+	privateKey, err := crypto.HexToECDSA(strings.ToLower(privateKeySender))
+
+	if nil != err {
+		panic(fmt.Sprintf("Invalid private key: %s, err: %s", privateKey, err.Error()))
+	}
+
+	// Fallback to default address
+	if "" == addressToSend {
+		addressToSend = defaultAddressToSend
+	}
+
+	AddressToSend = common.HexToAddress(addressToSend)
+
+	if "" != ipcEndpoint {
+		IpcEndpoint = ipcEndpoint
+	}
+
+	chainIdInt, err := strconv.ParseInt(chainId, 10, 64)
+
+	if nil == err && chainIdInt != ChainId.Int64() {
+		ChainId = big.NewInt(chainIdInt)
+	}
+
+	if nil != err {
+		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainId, ChainId, err.Error())
+	}
+
+	EthereumClient = newClient(IpcEndpoint)
 }
