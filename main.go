@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/go-ethereum/core/types"
-	"github.com/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"math/big"
 	"math/rand"
 	"os"
@@ -22,8 +22,8 @@ import (
 // level should be runnable without containerisation.
 
 const (
+	DefaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
 	defaultAddressToSend = "0xAa923CA0a32D75f88138DcAc7096F665C94d6630"
-	defaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
 )
 
 var (
@@ -33,14 +33,14 @@ var (
 	AddressToSend  common.Address
 )
 
-func init() {
+func defaultConfig() {
 	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
 	chainId := os.Getenv("CHAIN_ID")
 	addressToSend := os.Getenv("ADDRESS_TO_SEND")
 	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
 
 	if "" == privateKeySender {
-		privateKeySender = defaultPrivateKey
+		privateKeySender = DefaultPrivateKey
 	}
 
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(privateKeySender))
@@ -74,6 +74,7 @@ func init() {
 }
 
 func main() {
+	defaultConfig()
 	fmt.Printf("\n Running chaindriller on IPC: %s", IpcEndpoint)
 }
 
@@ -83,19 +84,12 @@ func PrepareTransactionsForPool(
 	privateKey *ecdsa.PrivateKey,
 ) (err error, transactions []*types.Transaction) {
 	ctx := context.Background()
-	currentProgress, err := client.SyncProgress(ctx)
-
-	if nil != err {
-		return
-	}
-
 	publicKey := privateKey.Public()
 	// It will panic if public key is invalid
 	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
 
-	currentBlock := int64(currentProgress.CurrentBlock)
-	balance, err := client.BalanceAt(ctx, fromAddress, big.NewInt(currentBlock))
+	balance, err := client.PendingBalanceAt(ctx, fromAddress)
 
 	if nil != err {
 		return
@@ -154,7 +148,7 @@ func PrepareTransactionsForPool(
 		if nil != err {
 			err = fmt.Errorf("error occured at txId: %d of total: %d, err: %s", i, stdInt, err.Error())
 
-			return
+			return err, transactions
 		}
 
 		transactions = append(transactions, signedTx)
