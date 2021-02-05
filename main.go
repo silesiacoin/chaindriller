@@ -114,7 +114,7 @@ func PrepareTransactionsForPool(
 		//token := make([]byte, 16)
 		//rand.Read(token)
 		addrToSend := AddressToSend
-		currentTx := types.NewTransaction(nonce, addrToSend, amount, gasLimit, gasPrice, nil)
+		currentTx := types.NewTransaction(nonce, addrToSend, amount, gasLimit, gasPrice, make([]byte, 0))
 		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(ChainId), privateKey)
 
 		if i%10 == 0 {
