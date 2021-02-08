@@ -24,7 +24,7 @@ import (
 
 const (
 	DefaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
-	DefaultAddressToSend = "0xAa923CA0a32D75f88138DcAc7096F665C94d6630"
+	DefaultAddressToSend = "0xe86Ffce704C00556dF42e31F14CEd095390A08eF"
 )
 
 var (
@@ -109,7 +109,7 @@ func PrepareTransactionsForPool(
 	gasLimit = gasLimit * 10
 
 	// Fill the transactions, maybe sign them and then push?
-	for i := 0; i < stdInt; i++ {
+	for index := 0; index < stdInt; index++ {
 		// Make random bytes to differ tx (May not work as expected)
 		//token := make([]byte, 16)
 		//rand.Read(token)
@@ -117,12 +117,12 @@ func PrepareTransactionsForPool(
 		currentTx := types.NewTransaction(nonce, addrToSend, amount, gasLimit, gasPrice, make([]byte, 0))
 		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(ChainId), privateKey)
 
-		if i%10 == 0 {
-			fmt.Printf("\n Signed new tx, %d", i)
+		if index%10 == 0 {
+			fmt.Printf("\n Signed new tx, %d", index)
 		}
 
 		if nil != err {
-			err = fmt.Errorf("error occured at txId: %d of total: %d, err: %s", i, stdInt, err.Error())
+			err = fmt.Errorf("\n error occured at txId: %d of total: %d, err: %s", index, stdInt, err.Error())
 
 			return err, transactions
 		}
@@ -152,15 +152,28 @@ func SendBulkOfSignedTransaction(
 
 	//Lets make some sense in possible routines at once with the lock. I suggest max 1k
 	minRoutinesUp := len(transactions)
+
+	if minRoutinesUp > 5000 {
+		minRoutinesUp = 5000
+	}
+
 	routinesWaitGroup.Add(minRoutinesUp)
 
 	for index, transaction := range transactions {
 		waitGroup.Add(1)
-		fmt.Printf("\nStarting routine index: %d", index)
 
-		go func(transaction *types.Transaction) {
+		if index%100 == 0 {
+			fmt.Printf("\nStarting routine index: %d", index)
+		}
+
+		go func(transaction *types.Transaction, index int) {
 			routinesWaitGroup.Done()
 			routinesWaitGroup.Wait()
+
+			if index%1000 == 0 {
+				fmt.Printf("\nStarting routines : %d", index)
+			}
+
 			err = client.SendTransaction(ctx, transaction)
 			transactionHash := transaction.Hash()
 
@@ -170,7 +183,7 @@ func SendBulkOfSignedTransaction(
 
 			finalReport.TransactionHashes = append(finalReport.TransactionHashes, transactionHash.String())
 			waitGroup.Done()
-		}(transaction)
+		}(transaction, index)
 	}
 
 	waitGroup.Wait()
