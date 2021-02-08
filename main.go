@@ -191,7 +191,10 @@ func SendBulkOfSignedTransaction(
 		}
 
 		go func(transaction *types.Transaction, index int) {
-			routinesWaitGroup.Done()
+			if index >= minRoutinesUp {
+				routinesWaitGroup.Done()
+			}
+
 			routinesWaitGroup.Wait()
 
 			if index%1000 == 0 {
