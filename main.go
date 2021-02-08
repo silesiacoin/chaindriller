@@ -35,6 +35,7 @@ var (
 	RoutinesCount  int
 	Eth1Endpoint   string
 	ChainId        *big.Int
+	Txs            int64
 )
 
 type FinalReport struct {
@@ -48,10 +49,11 @@ func main() {
 	flag.Int64Var(&chainid, "chain", 220720, "provide a chain id")
 	flag.StringVar(&Eth1Endpoint, "endpoint", IpcEndpoint, "provide a eth1 client endpoint")
 	flag.IntVar(&RoutinesCount, "routines", 1000, "provide a go routines maximum count")
+	flag.Int64Var(&Txs, "txs", 1000, "provide a transactions count")
 	flag.Parse()
 	ethClient := defaultConfig()
 	fmt.Printf("\n Running chaindriller on endpoint: %s with max. routines: %d", Eth1Endpoint, RoutinesCount)
-	transactionsLen := big.NewInt(int64(RoutinesCount))
+	transactionsLen := big.NewInt(Txs)
 	ChainId = big.NewInt(chainid)
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
 	if nil != err {

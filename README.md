@@ -22,3 +22,9 @@ Example usage (Pat): `./chaindriller -endpoint=/home/user/geth.ipc`
 `-routines` (default value is `1000`)
 
 Example usage: `./chaindriller -routines=5000`
+
+* Number of transactions:
+
+`-txs` (default value is `1000`)
+
+Example usage: `./chaindriller -txs=50000`
