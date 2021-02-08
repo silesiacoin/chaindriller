@@ -4,17 +4,18 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"math/big"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // Motivation of this repository is to have TX Pool filled with insane numbers in geth.
@@ -23,16 +24,20 @@ import (
 // level should be runnable without containerisation.
 
 const (
-	DefaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
-	DefaultAddressToSend = "0xe86Ffce704C00556dF42e31F14CEd095390A08eF"
+	defaultPrivateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
+	defaultAddressToSend = "0xe86Ffce704C00556dF42e31F14CEd095390A08eF"
+	defaultIPCEndpoint   = "./geth.ipc"
 )
 
-var (
-	IpcEndpoint    = "./geth.ipc"
-	ChainId        = big.NewInt(1)
-	EthereumClient *ethclient.Client
-	AddressToSend  common.Address
-)
+var defaultChainID = big.NewInt(1)
+
+// Config holds configuration values required by the program
+type Config struct {
+	ipcEndpoint   string
+	chainID       *big.Int
+	addressToSend common.Address
+	privateKey    *ecdsa.PrivateKey
+}
 
 type FinalReport struct {
 	Errors            []error
@@ -41,21 +46,56 @@ type FinalReport struct {
 }
 
 func main() {
-	defaultConfig()
-	fmt.Printf("\n Running chaindriller on IPC: %s", IpcEndpoint)
+	cfg := getConfig()
+
+	ethCli, err := ethclient.Dial(cfg.ipcEndpoint)
+	if err != nil {
+		panic(fmt.Sprintf("Could not connect to ethereum node url: %s, Err: %s", cfg.ipcEndpoint, err.Error()))
+	}
+
+	_ = New(ethCli, cfg.privateKey, cfg.addressToSend, cfg.chainID)
+
+	fmt.Printf("\n Running chaindriller on IPC: %s", cfg.ipcEndpoint)
 }
 
-func PrepareTransactionsForPool(
-	transactionsLen *big.Int,
-	client *ethclient.Client,
+type ethCli interface {
+	PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, error)
+	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
+	SuggestGasPrice(ctx context.Context) (*big.Int, error)
+	EstimateGas(ctx context.Context, msg ethereum.CallMsg) (uint64, error)
+	SendTransaction(ctx context.Context, tx *types.Transaction) error
+}
+
+func New(
+	ethereumCli ethCli,
 	privateKey *ecdsa.PrivateKey,
-) (err error, transactions []*types.Transaction) {
+	addressToSend common.Address,
+	chainID *big.Int) *Driller {
+	return &Driller{
+		cli:          ethereumCli,
+		privKey:      privateKey,
+		addrToSend:   addressToSend,
+		chainID:      chainID,
+		transactions: make([]*types.Transaction, 0),
+	}
+}
+
+type Driller struct {
+	cli          ethCli
+	privKey      *ecdsa.PrivateKey
+	addrToSend   common.Address
+	chainID      *big.Int
+	transactions []*types.Transaction
+}
+
+func (d *Driller) PrepareTransactionsForPool(transactionsLen *big.Int) (err error) {
 	ctx := context.Background()
-	publicKey := privateKey.Public()
+	publicKey := d.privKey.Public()
+
 	// It will panic if public key is invalid
 	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	balance, err := client.PendingBalanceAt(ctx, fromAddress)
+	balance, err := d.cli.PendingBalanceAt(ctx, fromAddress)
 
 	if nil != err {
 		return
@@ -64,7 +104,6 @@ func PrepareTransactionsForPool(
 	// Simple check if we have balance in this account
 	if balance.Cmp(big.NewInt(0)) < 1 {
 		err = fmt.Errorf("not enough balance in account address: %s", fromAddress)
-
 		return
 	}
 
@@ -73,8 +112,7 @@ func PrepareTransactionsForPool(
 	stdInt := int(transactionsLen.Int64())
 
 	// This is a little bit naive, but may work for the experiment if account is not used elsewhere
-	nonce, err := client.PendingNonceAt(ctx, fromAddress)
-
+	nonce, err := d.cli.PendingNonceAt(ctx, fromAddress)
 	if nil != err {
 		return
 	}
@@ -82,8 +120,7 @@ func PrepareTransactionsForPool(
 	// lets make a tiny amount to send to not burn everything at once
 	amount := big.NewInt(1)
 
-	gasPrice, err := client.SuggestGasPrice(ctx)
-
+	gasPrice, err := d.cli.SuggestGasPrice(ctx)
 	if nil != err {
 		return
 	}
@@ -92,9 +129,9 @@ func PrepareTransactionsForPool(
 	rand.Read(dummyToken)
 
 	// Call gas limit only once
-	gasLimit, err := client.EstimateGas(ctx, ethereum.CallMsg{
+	gasLimit, err := d.cli.EstimateGas(ctx, ethereum.CallMsg{
 		From:     fromAddress,
-		To:       &AddressToSend,
+		To:       &d.addrToSend,
 		Gas:      uint64(0),
 		GasPrice: gasPrice,
 		Value:    amount,
@@ -113,9 +150,9 @@ func PrepareTransactionsForPool(
 		// Make random bytes to differ tx (May not work as expected)
 		//token := make([]byte, 16)
 		//rand.Read(token)
-		addrToSend := AddressToSend
+		addrToSend := d.addrToSend
 		currentTx := types.NewTransaction(nonce, addrToSend, amount, gasLimit, gasPrice, make([]byte, 0))
-		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(ChainId), privateKey)
+		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(d.chainID), d.privKey)
 
 		if index%10 == 0 {
 			fmt.Printf("\n Signed new tx, %d", index)
@@ -124,10 +161,10 @@ func PrepareTransactionsForPool(
 		if nil != err {
 			err = fmt.Errorf("\n error occured at txId: %d of total: %d, err: %s", index, stdInt, err.Error())
 
-			return err, transactions
+			return err
 		}
 
-		transactions = append(transactions, signedTx)
+		d.transactions = append(d.transactions, signedTx)
 
 		// Nonce get call is done only once before the loop, may lead to problems
 		nonce++
@@ -136,12 +173,9 @@ func PrepareTransactionsForPool(
 	return
 }
 
-func SendBulkOfSignedTransaction(
-	client *ethclient.Client,
-	transactions []*types.Transaction,
-) (err error, finalReport FinalReport) {
+func (d *Driller) SendBulkOfSignedTransaction() (err error, finalReport FinalReport) {
 	ctx := context.Background()
-	finalReport.Transactions = transactions
+	finalReport.Transactions = d.transactions
 	finalReport.Errors = make([]error, 0)
 	finalReport.TransactionHashes = make([]string, 0)
 
@@ -151,7 +185,7 @@ func SendBulkOfSignedTransaction(
 	)
 
 	//Lets make some sense in possible routines at once with the lock. I suggest max 1k
-	minRoutinesUp := len(transactions)
+	minRoutinesUp := len(d.transactions)
 
 	if minRoutinesUp > 5000 {
 		minRoutinesUp = 5000
@@ -159,7 +193,7 @@ func SendBulkOfSignedTransaction(
 
 	routinesWaitGroup.Add(minRoutinesUp)
 
-	for index, transaction := range transactions {
+	for index, transaction := range d.transactions {
 		waitGroup.Add(1)
 
 		if index%100 == 0 {
@@ -174,7 +208,7 @@ func SendBulkOfSignedTransaction(
 				fmt.Printf("\nStarting routines : %d", index)
 			}
 
-			err = client.SendTransaction(ctx, transaction)
+			err = d.cli.SendTransaction(ctx, transaction)
 			transactionHash := transaction.Hash()
 
 			if nil != err {
@@ -191,51 +225,39 @@ func SendBulkOfSignedTransaction(
 	return
 }
 
-// newClient creates a client with specified remote URL.
-func newClient(ipcEndpoint string) *ethclient.Client {
-	client, err := ethclient.Dial(ipcEndpoint)
-	if err != nil {
-		panic(fmt.Sprintf("Could not connect to ethereum node url: %s, Err: %s", ipcEndpoint, err.Error()))
+func getConfig() (cfg Config) {
+	cfg.ipcEndpoint = os.Getenv("IPC_ENDPOINT")
+	if cfg.ipcEndpoint == "" {
+		cfg.ipcEndpoint = defaultIPCEndpoint
 	}
-	return client
-}
 
-func defaultConfig() {
-	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
-	chainId := os.Getenv("CHAIN_ID")
-	addressToSend := os.Getenv("ADDRESS_TO_SEND")
+	chainIDstr := os.Getenv("CHAIN_ID")
+	chainID, err := strconv.ParseInt(chainIDstr, 10, 64)
+
+	if err == nil {
+		cfg.chainID = big.NewInt(chainID)
+	} else {
+		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainIDstr, defaultChainID, err.Error())
+		cfg.chainID = defaultChainID
+	}
+
 	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
-
-	if "" == privateKeySender {
-		privateKeySender = DefaultPrivateKey
+	if privateKeySender == "" {
+		privateKeySender = defaultPrivateKey
 	}
 
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(privateKeySender))
-
-	if nil != err {
+	if err != nil {
 		panic(fmt.Sprintf("Invalid private key: %s, err: %s", privateKey, err.Error()))
 	}
+	cfg.privateKey = privateKey
 
-	// Fallback to default address
-	if "" == addressToSend {
-		addressToSend = DefaultAddressToSend
+	addressToSend := os.Getenv("ADDRESS_TO_SEND")
+	if addressToSend == "" {
+		addressToSend = defaultAddressToSend
 	}
 
-	AddressToSend = common.HexToAddress(addressToSend)
+	cfg.addressToSend = common.HexToAddress(addressToSend)
 
-	if "" != ipcEndpoint {
-		IpcEndpoint = ipcEndpoint
-	}
-
-	chainIdInt, err := strconv.ParseInt(chainId, 10, 64)
-
-	if nil == err && chainIdInt != ChainId.Int64() {
-		ChainId = big.NewInt(chainIdInt)
-	}
-
-	if nil != err {
-		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainId, ChainId, err.Error())
-	}
-
-	EthereumClient = newClient(IpcEndpoint)
+	return
 }
