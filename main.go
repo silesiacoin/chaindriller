@@ -57,7 +57,11 @@ func main() {
 	if nil != err {
 		return
 	}
-	err, _ = PrepareTransactionsForPool(transactionsLen, ethClient, privateKey)
+	err, transactions := PrepareTransactionsForPool(transactionsLen, ethClient, privateKey)
+	if nil != err {
+		return
+	}
+	err, _ = SendBulkOfSignedTransaction(ethClient, transactions)
 	if nil != err {
 		return
 	}
