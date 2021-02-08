@@ -102,6 +102,12 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 	})
 }
 
+func TestNewEthereumClient(t *testing.T) {
+	ethClient := defaultConfig()
+	assert.NotNil(t, ethClient)
+	assert.IsType(t, *EthereumClient, ethClient)
+}
+
 // I leave it here with error: `method eth_syncing` does not exist. I do not want to waste time now for mocking it.
 // Possible solution: add another mock for api for eth and assign method "eth_syncing"
 // and other methods that are missing
@@ -122,7 +128,6 @@ func possibleMockForEthIPC(t *testing.T, ipcLocation string) {
 			Version:   "1.0",
 		},
 	}
-
 	listener, server, err := rpc.StartIPCEndpoint(ipcLocation, rpcAPI)
 	assert.Nil(t, err)
 

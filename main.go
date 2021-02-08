@@ -30,10 +30,11 @@ const (
 
 var (
 	IpcEndpoint    = "./geth.ipc"
-	ChainId        = big.NewInt(1)
 	EthereumClient *ethclient.Client
 	AddressToSend  common.Address
 	RoutinesCount  int
+	Eth1Endpoint   string
+	ChainId        *big.Int
 )
 
 type FinalReport struct {
@@ -43,10 +44,23 @@ type FinalReport struct {
 }
 
 func main() {
+	var chainid int64
+	flag.Int64Var(&chainid, "chain", 220720, "provide a chain id")
+	flag.StringVar(&Eth1Endpoint, "endpoint", IpcEndpoint, "provide a eth1 client endpoint")
 	flag.IntVar(&RoutinesCount, "routines", 1000, "provide a go routines maximum count")
 	flag.Parse()
-	defaultConfig()
-	fmt.Printf("\n Running chaindriller on IPC: %s", IpcEndpoint)
+	ethClient := defaultConfig()
+	fmt.Printf("\n Running chaindriller on endpoint: %s with max. routines: %d", Eth1Endpoint, RoutinesCount)
+	transactionsLen := big.NewInt(int64(RoutinesCount))
+	ChainId = big.NewInt(chainid)
+	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
+	if nil != err {
+		return
+	}
+	err, _ = PrepareTransactionsForPool(transactionsLen, ethClient, privateKey)
+	if nil != err {
+		return
+	}
 }
 
 func PrepareTransactionsForPool(
@@ -204,7 +218,7 @@ func newClient(ipcEndpoint string) *ethclient.Client {
 	return client
 }
 
-func defaultConfig() {
+func defaultConfig() *ethclient.Client {
 	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
 	chainId := os.Getenv("CHAIN_ID")
 	addressToSend := os.Getenv("ADDRESS_TO_SEND")
@@ -241,5 +255,5 @@ func defaultConfig() {
 		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainId, ChainId, err.Error())
 	}
 
-	EthereumClient = newClient(IpcEndpoint)
+	return newClient(IpcEndpoint)
 }
