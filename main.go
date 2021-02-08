@@ -223,7 +223,6 @@ func newClient(ipcEndpoint string) *ethclient.Client {
 }
 
 func defaultConfig() *ethclient.Client {
-	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
 	chainId := os.Getenv("CHAIN_ID")
 	addressToSend := os.Getenv("ADDRESS_TO_SEND")
 	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
@@ -245,10 +244,6 @@ func defaultConfig() *ethclient.Client {
 
 	AddressToSend = common.HexToAddress(addressToSend)
 
-	if "" != ipcEndpoint {
-		IpcEndpoint = ipcEndpoint
-	}
-
 	chainIdInt, err := strconv.ParseInt(chainId, 10, 64)
 
 	if nil == err && chainIdInt != ChainId.Int64() {
@@ -259,5 +254,5 @@ func defaultConfig() *ethclient.Client {
 		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainId, ChainId, err.Error())
 	}
 
-	return newClient(IpcEndpoint)
+	return newClient(Eth1Endpoint)
 }
