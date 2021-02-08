@@ -102,6 +102,7 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 	})
 }
 
+// Simple test prepared for extending of defaultConfig logic
 func TestNewEthereumClient(t *testing.T) {
 	ethClient := defaultConfig()
 	assert.NotNil(t, ethClient)
