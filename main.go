@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -32,6 +33,7 @@ var (
 	ChainId        = big.NewInt(1)
 	EthereumClient *ethclient.Client
 	AddressToSend  common.Address
+	RoutinesCount  int
 )
 
 type FinalReport struct {
@@ -41,6 +43,8 @@ type FinalReport struct {
 }
 
 func main() {
+	flag.IntVar(&RoutinesCount, "routines", 1000, "provide a go routines maximum count")
+	flag.Parse()
 	defaultConfig()
 	fmt.Printf("\n Running chaindriller on IPC: %s", IpcEndpoint)
 }
@@ -153,8 +157,8 @@ func SendBulkOfSignedTransaction(
 	//Lets make some sense in possible routines at once with the lock. I suggest max 1k
 	minRoutinesUp := len(transactions)
 
-	if minRoutinesUp > 5000 {
-		minRoutinesUp = 5000
+	if minRoutinesUp > RoutinesCount {
+		minRoutinesUp = RoutinesCount
 	}
 
 	routinesWaitGroup.Add(minRoutinesUp)
