@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/ecdsa"
+	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -29,9 +30,12 @@ const (
 
 var (
 	IpcEndpoint    = "./geth.ipc"
-	ChainId        = big.NewInt(1)
 	EthereumClient *ethclient.Client
 	AddressToSend  common.Address
+	RoutinesCount  int
+	Eth1Endpoint   string
+	ChainId        *big.Int
+	Txs            int64
 )
 
 type FinalReport struct {
@@ -41,8 +45,28 @@ type FinalReport struct {
 }
 
 func main() {
-	defaultConfig()
-	fmt.Printf("\n Running chaindriller on IPC: %s", IpcEndpoint)
+	var chainid int64
+	flag.Int64Var(&chainid, "chain", 220720, "provide a chain id")
+	flag.StringVar(&Eth1Endpoint, "endpoint", IpcEndpoint, "provide a eth1 client endpoint")
+	flag.IntVar(&RoutinesCount, "routines", 1000, "provide a go routines maximum count")
+	flag.Int64Var(&Txs, "txs", 1000, "provide a transactions count")
+	flag.Parse()
+	ethClient := defaultConfig()
+	fmt.Printf("\n Running chaindriller on endpoint: %s with max. routines: %d", Eth1Endpoint, RoutinesCount)
+	transactionsLen := big.NewInt(Txs)
+	ChainId = big.NewInt(chainid)
+	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
+	if nil != err {
+		return
+	}
+	err, transactions := PrepareTransactionsForPool(transactionsLen, ethClient, privateKey)
+	if nil != err {
+		return
+	}
+	err, _ = SendBulkOfSignedTransaction(ethClient, transactions)
+	if nil != err {
+		return
+	}
 }
 
 func PrepareTransactionsForPool(
@@ -153,8 +177,8 @@ func SendBulkOfSignedTransaction(
 	//Lets make some sense in possible routines at once with the lock. I suggest max 1k
 	minRoutinesUp := len(transactions)
 
-	if minRoutinesUp > 5000 {
-		minRoutinesUp = 5000
+	if minRoutinesUp > RoutinesCount {
+		minRoutinesUp = RoutinesCount
 	}
 
 	routinesWaitGroup.Add(minRoutinesUp)
@@ -167,7 +191,10 @@ func SendBulkOfSignedTransaction(
 		}
 
 		go func(transaction *types.Transaction, index int) {
-			routinesWaitGroup.Done()
+			if index >= minRoutinesUp {
+				routinesWaitGroup.Done()
+			}
+
 			routinesWaitGroup.Wait()
 
 			if index%1000 == 0 {
@@ -200,8 +227,7 @@ func newClient(ipcEndpoint string) *ethclient.Client {
 	return client
 }
 
-func defaultConfig() {
-	ipcEndpoint := os.Getenv("IPC_ENDPOINT")
+func defaultConfig() *ethclient.Client {
 	chainId := os.Getenv("CHAIN_ID")
 	addressToSend := os.Getenv("ADDRESS_TO_SEND")
 	privateKeySender := os.Getenv("PRIVATE_KEY_SENDER")
@@ -223,10 +249,6 @@ func defaultConfig() {
 
 	AddressToSend = common.HexToAddress(addressToSend)
 
-	if "" != ipcEndpoint {
-		IpcEndpoint = ipcEndpoint
-	}
-
 	chainIdInt, err := strconv.ParseInt(chainId, 10, 64)
 
 	if nil == err && chainIdInt != ChainId.Int64() {
@@ -237,5 +259,5 @@ func defaultConfig() {
 		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainId, ChainId, err.Error())
 	}
 
-	EthereumClient = newClient(IpcEndpoint)
+	return newClient(Eth1Endpoint)
 }
