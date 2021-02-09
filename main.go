@@ -45,6 +45,8 @@ type FinalReport struct {
 	TransactionHashes []string
 }
 
+var reportM = sync.Mutex{}
+
 func main() {
 	cfg := getConfig()
 
@@ -211,11 +213,13 @@ func (d *Driller) SendBulkOfSignedTransaction() (err error, finalReport FinalRep
 			err = d.cli.SendTransaction(ctx, transaction)
 			transactionHash := transaction.Hash()
 
+			reportM.Lock()
 			if nil != err {
 				finalReport.Errors = append(finalReport.Errors, err)
 			}
 
 			finalReport.TransactionHashes = append(finalReport.TransactionHashes, transactionHash.String())
+			reportM.Unlock()
 			waitGroup.Done()
 		}(transaction, index)
 	}

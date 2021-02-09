@@ -1,54 +1,26 @@
 package main
 
 import (
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/signer/core"
-	"github.com/stretchr/testify/assert"
-	"golang.org/x/net/context"
+	"io/ioutil"
+	"log"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
-)
 
-type ExternalApiMock struct{}
-
-var (
-// TODO: resolve internal api mock problem
-//_ core.ExternalAPI = ExternalApiMock{}
-)
-
-func (externalApiMock ExternalApiMock) New(ctx context.Context) (address common.Address, err error) {
-	return
-}
-func (externalApiMock ExternalApiMock) List(ctx context.Context) (addresses []common.Address, err error) {
-	return
-}
-func (externalApiMock ExternalApiMock) SignTransaction(ctx context.Context, args core.SendTxArgs, methodSelector *string) (result interface{}, err error) {
-	return
-}
-func (externalApiMock ExternalApiMock) SignData(ctx context.Context) (addresses []common.Address, err error) {
-	return
-}
-func (externalApiMock ExternalApiMock) SignTypedData(ctx context.Context) (addresses []common.Address, err error) {
-	return
-}
-func (externalApiMock ExternalApiMock) EcRecover(ctx context.Context) (addresses []common.Address, err error) {
-	return
-}
-func (externalApiMock ExternalApiMock) Version(ctx context.Context) (addresses []common.Address, err error) {
-	return
-}
-
-var (
-	// it must be real endpoint, IPC is misleading because it does not need to be ipc.
-	ipcLocation = "http://34.91.155.128:8545"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPrepareTransactionsForPool(t *testing.T) {
+	ipcPath, cleanup := mockEthIPC(t)
+	defer cleanup()
+
 	// Star client on a server
-	client := newClient(ipcLocation)
+	client := newClient(ipcPath)
 
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
 	assert.Nil(t, err)
@@ -74,7 +46,10 @@ func TestPrepareTransactionsForPool(t *testing.T) {
 
 // One weird scenario. When gas was set to 0 whole chain had stopped mining.
 func TestSendPreparedTransactionsForPool(t *testing.T) {
-	client := newClient(ipcLocation)
+	ipcPath, cleanup := mockEthIPC(t)
+	defer cleanup()
+
+	client := newClient(ipcPath)
 	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
 	assert.Nil(t, err)
 
@@ -102,32 +77,58 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 	})
 }
 
-// I leave it here with error: `method eth_syncing` does not exist. I do not want to waste time now for mocking it.
-// Possible solution: add another mock for api for eth and assign method "eth_syncing"
-// and other methods that are missing
-func possibleMockForEthIPC(t *testing.T, ipcLocation string) {
-	myApi := ExternalApiMock{}
+func mockEthIPC(t *testing.T) (path string, close func()) {
+	ipcFile, err := ioutil.TempFile("", "geth_mock_*")
+	if err != nil {
+		log.Fatal(err)
+	}
+	ipcPath := ipcFile.Name()
+
+	myAPI := rpcMethods{}
 
 	rpcAPI := []rpc.API{
 		{
 			Namespace: "account",
 			Public:    true,
-			Service:   myApi,
+			Service:   myAPI,
 			Version:   "1.0",
 		},
 		{
 			Namespace: "eth",
 			Public:    true,
-			Service:   myApi,
+			Service:   myAPI,
 			Version:   "1.0",
 		},
 	}
 
-	listener, server, err := rpc.StartIPCEndpoint(ipcLocation, rpcAPI)
+	l, s, err := rpc.StartIPCEndpoint(ipcPath, rpcAPI)
 	assert.Nil(t, err)
 
-	defer func() {
-		server.Stop()
-		_ = listener.Close()
-	}()
+	return ipcPath, func() {
+		s.Stop()
+		l.Close()
+		os.Remove(ipcPath)
+	}
+}
+
+type rpcMethods struct{}
+
+func (r rpcMethods) GetBalance(addr common.Address, tag string) string {
+	return "0x3E8"
+}
+
+func (r rpcMethods) GetTransactionCount(addr common.Address, tag string) string {
+	return "0x0"
+}
+
+func (r rpcMethods) GasPrice() string {
+	return "0x3b9aca00"
+}
+
+func (r rpcMethods) EstimateGas(msg map[string]interface{}) string {
+	return "0x5208"
+}
+
+func (r rpcMethods) SendRawTransaction(data hexutil.Bytes) string {
+	return "0xe670ec64341771606e55d6b4ca35a1a6b75ee3d5145a99d05921026d1527331"
 }
