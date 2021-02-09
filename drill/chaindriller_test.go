@@ -1,42 +1,61 @@
-package main
+package drill_test
 
 import (
 	"io/ioutil"
 	"log"
 	"math/big"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/silesiacoin/chaindriller/drill"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestPrepareTransactionsForPool(t *testing.T) {
+const (
+	privateKey    = "fad9c8855b740a0b7ed4c221dbad0f33a83a49cad6b3fe8d5817ac83d38b6a19"
+	addressToSend = "0xe86Ffce704C00556dF42e31F14CEd095390A08eF"
+)
+
+var defaultChainID = big.NewInt(1)
+
+func getDrill(t *testing.T) (d *drill.Driller, cleanup func()) {
 	ipcPath, cleanup := mockEthIPC(t)
-	defer cleanup()
 
 	// Star client on a server
-	client := newClient(ipcPath)
-
-	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
+	c, err := ethclient.Dial(ipcPath)
 	assert.Nil(t, err)
+
+	pk, err := crypto.HexToECDSA(privateKey)
+	assert.Nil(t, err)
+
+	addr := common.HexToAddress(addressToSend)
+	d = drill.New(c, pk, addr, defaultChainID)
+
+	return
+}
+
+func TestPrepareTransactionsForPool(t *testing.T) {
+	d, c := getDrill(t)
+	defer c()
 
 	t.Run("Prepare 50 transactions", func(t *testing.T) {
 		expectedLen := 50
 		transactionsLen := big.NewInt(int64(expectedLen))
-		err, transactions := PrepareTransactionsForPool(transactionsLen, client, privateKey)
+
+		err := d.PrepareTransactionsForPool(transactionsLen)
 		assert.Nil(t, err)
-		assert.NotEmpty(t, transactions)
-		assert.Len(t, transactions, expectedLen)
+		assert.NotEmpty(t, d.Transactions)
+		assert.Len(t, d.Transactions, expectedLen)
 
 		t.Run("Nonce is increasing", func(t *testing.T) {
-			firstNonce := transactions[0].Nonce()
+			firstNonce := d.Transactions[0].Nonce()
 
-			for index, transaction := range transactions {
+			for index, transaction := range d.Transactions {
 				nonce := transaction.Nonce()
 				assert.Equal(t, nonce, uint64(index+int(firstNonce)))
 			}
@@ -46,30 +65,20 @@ func TestPrepareTransactionsForPool(t *testing.T) {
 
 // One weird scenario. When gas was set to 0 whole chain had stopped mining.
 func TestSendPreparedTransactionsForPool(t *testing.T) {
-	ipcPath, cleanup := mockEthIPC(t)
-	defer cleanup()
+	d, c := getDrill(t)
+	defer c()
 
-	client := newClient(ipcPath)
-	privateKey, err := crypto.HexToECDSA(strings.ToLower(DefaultPrivateKey))
-	assert.Nil(t, err)
-
-	defer func() {
-		ChainId = big.NewInt(1)
-		AddressToSend = common.Address{}
-	}()
-
-	AddressToSend = common.HexToAddress(DefaultAddressToSend)
+	expectedLen := 1000
+	transactionsLen := big.NewInt(int64(expectedLen))
+	d.ChainID = big.NewInt(220720)
 
 	t.Run("Send 1000 transactions", func(t *testing.T) {
-		expectedLen := 1000
-		transactionsLen := big.NewInt(int64(expectedLen))
-		ChainId = big.NewInt(220720)
-		err, transactions := PrepareTransactionsForPool(transactionsLen, client, privateKey)
+		err := d.PrepareTransactionsForPool(transactionsLen)
 		assert.Nil(t, err)
-		assert.NotEmpty(t, transactions)
-		assert.Len(t, transactions, expectedLen)
+		assert.NotEmpty(t, d.Transactions)
+		assert.Len(t, d.Transactions, expectedLen)
 
-		err, finalReport := SendBulkOfSignedTransaction(client, transactions)
+		err, finalReport := d.SendBulkOfSignedTransaction()
 		assert.Nil(t, err)
 		assert.Len(t, finalReport.TransactionHashes, expectedLen)
 		assert.Len(t, finalReport.Transactions, expectedLen)
