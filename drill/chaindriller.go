@@ -20,7 +20,7 @@ type FinalReport struct {
 	TransactionHashes []string
 }
 
-type ethCli interface {
+type EthCli interface {
 	PendingBalanceAt(ctx context.Context, account common.Address) (*big.Int, error)
 	PendingNonceAt(ctx context.Context, account common.Address) (uint64, error)
 	SuggestGasPrice(ctx context.Context) (*big.Int, error)
@@ -29,7 +29,7 @@ type ethCli interface {
 }
 
 func New(
-	ethereumCli ethCli,
+	ethereumCli EthCli,
 	privateKey *ecdsa.PrivateKey,
 	addressToSend common.Address,
 	chainID *big.Int) *Driller {
@@ -43,7 +43,7 @@ func New(
 }
 
 type Driller struct {
-	cli          ethCli
+	cli          EthCli
 	PrivKey      *ecdsa.PrivateKey
 	AddrToSend   common.Address
 	ChainID      *big.Int
