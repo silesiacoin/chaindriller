@@ -4,17 +4,18 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"math/big"
 	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 // Motivation of this repository is to have TX Pool filled with insane numbers in geth.
@@ -39,6 +40,8 @@ type FinalReport struct {
 	Transactions      []*types.Transaction
 	TransactionHashes []string
 }
+
+var reportM = sync.Mutex{}
 
 func main() {
 	defaultConfig()
@@ -177,11 +180,13 @@ func SendBulkOfSignedTransaction(
 			err = client.SendTransaction(ctx, transaction)
 			transactionHash := transaction.Hash()
 
+			reportM.Lock()
 			if nil != err {
 				finalReport.Errors = append(finalReport.Errors, err)
 			}
 
 			finalReport.TransactionHashes = append(finalReport.TransactionHashes, transactionHash.String())
+			reportM.Unlock()
 			waitGroup.Done()
 		}(transaction, index)
 	}
