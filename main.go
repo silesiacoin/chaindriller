@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -35,8 +34,6 @@ type Config struct {
 	addressToSend common.Address
 	privateKey    *ecdsa.PrivateKey
 }
-
-var reportM = sync.Mutex{}
 
 func main() {
 	cfg := getConfig()
