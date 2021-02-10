@@ -43,22 +43,22 @@ func New(
 }
 
 type Driller struct {
-	cli          EthCli
-	PrivKey      *ecdsa.PrivateKey
 	AddrToSend   common.Address
 	ChainID      *big.Int
+	cli          EthCli
+	PrivKey      *ecdsa.PrivateKey
 	Transactions []*types.Transaction
 }
 
-func (d *Driller) PrepareTransactionsForPool(transactionsLen *big.Int) (err error) {
+func (d *Driller) PrepareTransactionsForPool(txN *big.Int) (err error) {
 	ctx := context.Background()
 	publicKey := d.PrivKey.Public()
 
 	// It will panic if public key is invalid
 	publicKeyECDSA := publicKey.(*ecdsa.PublicKey)
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	balance, err := d.cli.PendingBalanceAt(ctx, fromAddress)
 
+	balance, err := d.cli.PendingBalanceAt(ctx, fromAddress)
 	if nil != err {
 		return
 	}
@@ -70,8 +70,6 @@ func (d *Driller) PrepareTransactionsForPool(transactionsLen *big.Int) (err erro
 	}
 
 	fmt.Printf("\n Balance of account: %d WEI", balance.Int64())
-
-	stdInt := int(transactionsLen.Int64())
 
 	// This is a little bit naive, but may work for the experiment if account is not used elsewhere
 	nonce, err := d.cli.PendingNonceAt(ctx, fromAddress)
@@ -108,7 +106,7 @@ func (d *Driller) PrepareTransactionsForPool(transactionsLen *big.Int) (err erro
 	gasLimit = gasLimit * 10
 
 	// Fill the transactions, maybe sign them and then push?
-	for index := 0; index < stdInt; index++ {
+	for index := 0; index < int(txN.Int64()); index++ {
 		// Make random bytes to differ tx (May not work as expected)
 		//token := make([]byte, 16)
 		//rand.Read(token)
@@ -121,7 +119,7 @@ func (d *Driller) PrepareTransactionsForPool(transactionsLen *big.Int) (err erro
 		}
 
 		if nil != err {
-			err = fmt.Errorf("\n error occured at txId: %d of total: %d, err: %s", index, stdInt, err.Error())
+			err = fmt.Errorf("\n error occured at txId: %d of total: %d, err: %s", index, txN, err.Error())
 
 			return err
 		}
@@ -135,71 +133,70 @@ func (d *Driller) PrepareTransactionsForPool(transactionsLen *big.Int) (err erro
 	return
 }
 
-func (d *Driller) SendBulkOfSignedTransaction() (err error, finalReport FinalReport) {
-	ctx := context.Background()
+type result struct {
+	hash string
+	err  error
+}
+
+func (d *Driller) txWorker(ctx context.Context, txs chan *types.Transaction, results chan result, wg *sync.WaitGroup) {
+	for tx := range txs {
+		err := d.cli.SendTransaction(ctx, tx)
+		transactionHash := tx.Hash()
+		results <- result{transactionHash.String(), err}
+	}
+
+	wg.Done()
+}
+
+func resultPacker(report *FinalReport, results chan result, done *sync.WaitGroup) {
+	done.Add(1)
+	for r := range results {
+		if r.err != nil {
+			report.Errors = append(report.Errors, r.err)
+		}
+		report.TransactionHashes = append(report.TransactionHashes, r.hash)
+	}
+	done.Done()
+}
+
+func (d *Driller) SendBulkOfSignedTransaction(routinesN int) (err error, finalReport FinalReport) {
 	finalReport.Transactions = d.Transactions
 	finalReport.Errors = make([]error, 0)
-	finalReport.TransactionHashes = make([]string, 0)
+	finalReport.TransactionHashes = make([]string, 0, len(d.Transactions))
 
 	var (
-		waitGroup         sync.WaitGroup
-		routinesWaitGroup sync.WaitGroup
+		workers sync.WaitGroup
+		packer  sync.WaitGroup
 	)
 
 	//Lets make some sense in possible routines at once with the lock. I suggest max 1k
-	minRoutinesUp := len(d.Transactions)
 
-	if minRoutinesUp > 5000 {
-		minRoutinesUp = 5000
-	}
-
-	routinesWaitGroup.Add(minRoutinesUp)
-
-	type result struct {
-		hash string
-		err  error
+	if routinesN > len(d.Transactions) || routinesN == 0 {
+		routinesN = len(d.Transactions)
 	}
 
 	results := make(chan result, 32)
+	txs := make(chan *types.Transaction, 32)
+	ctx := context.Background()
 
-	for index, transaction := range d.Transactions {
-		waitGroup.Add(1)
-
-		if index%100 == 0 {
-			fmt.Printf("\nStarting routine index: %d", index)
+	workers.Add(routinesN)
+	for i := 0; i < routinesN; i++ {
+		if i%100 == 0 {
+			fmt.Printf("\nStarting routine index: %d", i)
 		}
 
-		go func(transaction *types.Transaction, index int) {
-			routinesWaitGroup.Done()
-			routinesWaitGroup.Wait()
-
-			if index%1000 == 0 {
-				fmt.Printf("\nStarting routines : %d", index)
-			}
-
-			err = d.cli.SendTransaction(ctx, transaction)
-			transactionHash := transaction.Hash()
-
-			results <- result{transactionHash.String(), err}
-			waitGroup.Done()
-		}(transaction, index)
+		go d.txWorker(ctx, txs, results, &workers)
 	}
 
-	wrote := make(chan int)
-	go func() {
-		for r := range results {
-			if err != nil {
-				finalReport.Errors = append(finalReport.Errors, r.err)
-			}
+	go resultPacker(&finalReport, results, &packer)
 
-			finalReport.TransactionHashes = append(finalReport.TransactionHashes, r.hash)
-		}
-		wrote <- 0
-	}()
-
-	waitGroup.Wait()
+	for i := range d.Transactions {
+		txs <- d.Transactions[i]
+	}
+	close(txs)
+	workers.Wait()
 	close(results)
-	<-wrote
+	packer.Wait()
 
 	return
 }

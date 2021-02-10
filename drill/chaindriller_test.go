@@ -77,7 +77,7 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 		assert.Nil(t, err)
 
 		// When
-		err, finalReport := drill.SendBulkOfSignedTransaction()
+		err, finalReport := drill.SendBulkOfSignedTransaction(txN)
 
 		// Then
 		assert.Nil(t, err)
