@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -25,6 +27,10 @@ const (
 	defaultAddressToSend = "0xe86Ffce704C00556dF42e31F14CEd095390A08eF"
 	defaultIPCEndpoint   = "./geth.ipc"
 	defaultChainID       = 1
+)
+
+var (
+	endpoints = make([]string, 0)
 )
 
 // Config holds configuration values required by the program
@@ -49,22 +55,42 @@ func main() {
 
 	fmt.Printf("\n Running chaindriller on endpoint: %s with max. routines: %d", cfg.ipcEndpoint, cfg.routinesN)
 
-	ethCli, err := ethclient.Dial(cfg.ipcEndpoint)
-	if err != nil {
-		panic(fmt.Sprintf("Could not connect to ethereum node url: %s, Err: %s", cfg.ipcEndpoint, err.Error()))
-	}
+	//d.RoutinesN = cfg.routinesN
+	ticker := time.NewTicker(time.Second)
+	maxEndpoints := len(endpoints)
+	counter := 0
 
-	d := drill.New(ethCli, cfg.privateKey, cfg.addressToSend, big.NewInt(cfg.chainID))
-	d.RoutinesN = cfg.routinesN
+	for {
+		<-ticker.C
 
-	err = d.PrepareTransactionsForPool(big.NewInt(cfg.txN))
-	if nil != err {
-		return
-	}
+		counter = rand.Intn(maxEndpoints)
 
-	err, _ = d.SendBulkOfSignedTransaction()
-	if nil != err {
-		return
+		if counter >= maxEndpoints-1 {
+			counter = 0
+		}
+
+		endpoint := endpoints[counter]
+
+		ethCli, err := ethclient.Dial(endpoint)
+		if err != nil {
+			fmt.Printf("Could not connect to ethereum node url: %s, Err: %s", cfg.ipcEndpoint, err.Error())
+
+			continue
+		}
+
+		d := drill.New(ethCli, cfg.privateKey, cfg.addressToSend, big.NewInt(cfg.chainID))
+
+		fmt.Printf("I am starting new push")
+
+		err = d.PrepareTransactionsForPool(big.NewInt(cfg.txN))
+		if nil != err {
+			continue
+		}
+
+		err, _ = d.SendBulkOfSignedTransaction(cfg.routinesN)
+		if nil != err {
+			continue
+		}
 	}
 }
 
@@ -101,6 +127,13 @@ func getConfig() (cfg Config) {
 	}
 
 	cfg.addressToSend = common.HexToAddress(addressToSend)
+
+	endpoints = []string{
+		"http://35.198.128.64:8545",
+		"http://34.141.11.212:8545",
+		"http://34.141.40.237:8545",
+		"http://35.246.249.130:8545",
+	}
 
 	return
 }

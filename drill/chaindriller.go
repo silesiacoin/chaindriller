@@ -156,6 +156,11 @@ func resultPacker(report *FinalReport, results chan result, done *sync.WaitGroup
 		}
 		report.TransactionHashes = append(report.TransactionHashes, r.hash)
 	}
+	fmt.Printf(
+		"\n Report: TX HASHES: \n %v, \n ERRORS: %v",
+		report.TransactionHashes,
+		report.Errors,
+	)
 	done.Done()
 }
 
