@@ -30,5 +30,8 @@ func main() {
 		return
 	}
 
-	log.Println(resp)
+	log.Println("It looks like you have created the profile! Below are the values that you need \n\n\n\n\n=>")
+	log.Printf("Universal Receiver address: %s", resp.Data.Contracts.UniversalReceiver.Address.String())
+	log.Printf("Erc725 address: %s", resp.Data.Contracts.Erc725.Address.String())
+	log.Printf("KeyManager address: %s", resp.Data.Contracts.KeyManager.Address.String())
 }

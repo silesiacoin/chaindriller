@@ -1,6 +1,11 @@
 # This is a chaindriller
  It is inspired by chainhammer, but is focused on filling tx pool with insane numbers via IPC/RPC
 
+## RELAYER SUPPORT
+To deploy Universal Profile use `go run ./cmd/updeployer/main.go`. 
+It will deploy all needed smart contracts to L14 via staging relayer. 
+L15 will be supported soon.
+
 ### Flags
 
 * Chain ID:
