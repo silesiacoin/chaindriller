@@ -62,7 +62,7 @@ func main() {
 		return
 	}
 
-	err, _ = d.SendBulkOfSignedTransaction()
+	err, _ = d.SendBulkOfSignedTransaction(5)
 	if nil != err {
 		return
 	}
