@@ -9,7 +9,7 @@ import (
 func main() {
 	log.Println("deploy of the UP")
 	client := relayer.NewStaging()
-	addr, err := common.NewMixedcaseAddressFromString("0xD3d39cb1d8ADa2bF1260fE05b7358dC031812B3A")
+	addr, err := common.NewMixedcaseAddressFromString("0xE6D95f736b2e89B9b6062EF7c39ea740B4801D85")
 
 	if nil != err {
 		log.Fatalln(err)
@@ -20,7 +20,7 @@ func main() {
 	err, resp := client.CreateProfile(
 		relayer.DefaultProfileJson,
 		addr,
-		"dummy@lukso.io",
+		"dummys@lukso.io",
 	)
 
 	log.Println("after response")

@@ -173,12 +173,15 @@ func (client *Client) CreateProfileAsync(
 		Email               string                   `json:"email"`
 	}
 
-	randInt := rand.Intn(10000000)
+	rand.Seed(time.Now().Unix())
+	randInt := rand.Intn(10000000) + rand.Intn(56000)
 	encodedSalt := hexutil.EncodeUint64(uint64(randInt))
 
 	for i := len(encodedSalt); i < 66; i++ {
 		encodedSalt = fmt.Sprintf("%sf", encodedSalt)
 	}
+
+	log.Println(encodedSalt)
 
 	profileRequest := ProfileRequest{
 		ProfileJsonUrl:      profileJsonUrl,
