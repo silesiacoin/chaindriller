@@ -7,8 +7,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"io/ioutil"
+	"log"
+	"math/big"
 	"math/rand"
 	"net/http"
+	"time"
 )
 
 const (
@@ -30,6 +33,33 @@ type CreateProfileResponse struct {
 	Err                 string         `json:"error,omitempty"`
 }
 
+type CreateProfileTaskResponse struct {
+	Success bool                `json:"success"`
+	TaskID  string              `json:"taskId"`
+	Status  string              `json:"status"`
+	Err     string              `json:"error"`
+	Data    ProfileDataResponse `json:"data"`
+}
+
+type ProfileDataResponse struct {
+	Contracts ProfileDataContractsResponse `json:"contracts"`
+	Message   interface{}                  `json:"message"`
+}
+
+type ProfileDataContractsResponse struct {
+	Erc725            GenericContractTaskResponse `json:"erc725"`
+	KeyManager        GenericContractTaskResponse `json:"keyManager"`
+	UniversalReceiver GenericContractTaskResponse `json:"universalReceiver"`
+}
+
+type GenericContractTaskResponse struct {
+	Block           big.Int                 `json:"block"`
+	Status          string                  `json:"string"`
+	Address         common.MixedcaseAddress `json:"address"`
+	Version         string                  `json:"version"`
+	TransactionHash common.Hash             `json:"transactionHash"`
+}
+
 func New(endpoint string) (client *Client) {
 	client = &Client{endpoint: endpoint}
 	return
@@ -40,7 +70,99 @@ func NewStaging() (client *Client) {
 	return
 }
 
-func (client *Client) CreateProfile(profileJsonUrl string, erc725ControllerKey *common.MixedcaseAddress, email string) (
+func (client *Client) CreateProfile(
+	profileJsonUrl string,
+	erc725ControllerKey *common.MixedcaseAddress,
+	email string,
+) (
+	err error,
+	response *CreateProfileTaskResponse,
+) {
+	err, createProfileResponse := client.CreateProfileAsync(profileJsonUrl, erc725ControllerKey, email)
+
+	if nil != err {
+		return
+	}
+
+	if !createProfileResponse.Success || len(createProfileResponse.Err) > 0 {
+		err = fmt.Errorf(
+			"invalid resposne during profile creation: %v, err: %v",
+			response,
+			createProfileResponse.Err,
+		)
+
+		return
+	}
+
+	log.Println("created profile, waiting for task response")
+
+	err, response = client.GetTaskIDResponse(createProfileResponse.TaskID)
+
+	return
+}
+
+func (client *Client) GetTaskIDResponse(taskID string) (
+	err error,
+	currentResponse *CreateProfileTaskResponse,
+) {
+	currentResponse = &CreateProfileTaskResponse{}
+	taskIDUrl := fmt.Sprintf("%s/%s/%s", client.endpoint, "api/v1/task/", taskID)
+	resp, err := http.Get(taskIDUrl)
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if nil != err {
+		return
+	}
+
+	bodyBytes, err := ioutil.ReadAll(resp.Body)
+
+	if nil != err {
+		return
+	}
+
+	err = json.Unmarshal(bodyBytes, currentResponse)
+
+	if nil != err {
+		return
+	}
+
+	log.Println(currentResponse)
+
+	const (
+		createdStatus    = "CREATED"
+		processingStatus = "PROCESSING"
+		failedStatus     = "FAILED"
+		completeStatus   = "COMPLETE"
+	)
+
+	if processingStatus == currentResponse.Status || createdStatus == currentResponse.Status {
+		time.Sleep(time.Second)
+
+		return client.GetTaskIDResponse(taskID)
+	}
+
+	if failedStatus == currentResponse.Status {
+		err = fmt.Errorf("could not create profile, err: %s", currentResponse.Err)
+
+		return
+	}
+
+	if completeStatus != currentResponse.Status {
+		err = fmt.Errorf("unexpected status from relayer api, status: %s", currentResponse.Status)
+		return
+	}
+
+	return
+}
+
+func (client *Client) CreateProfileAsync(
+	profileJsonUrl string,
+	erc725ControllerKey *common.MixedcaseAddress,
+	email string,
+) (
 	err error,
 	response *CreateProfileResponse,
 ) {
