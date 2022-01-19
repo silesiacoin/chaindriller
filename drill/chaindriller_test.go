@@ -35,23 +35,22 @@ func TestPrepareTransactionsForPool(t *testing.T) {
 		cli.On("SuggestGasPrice", mock.Anything).Return(big.NewInt(1_000_000_000), nil)
 		cli.On("EstimateGas", mock.Anything, mock.Anything).Return(uint64(21000), nil)
 
-		drill := getDrill(t, cli)
+		driller := getDrill(t, cli)
 		txN := 50
 
 		// When
-
-		err := drill.PrepareTransactionsForPool(big.NewInt(int64(txN)))
+		err := driller.PrepareTransactionsForPool(big.NewInt(int64(txN)))
 
 		// Then
 		assert.Nil(t, err)
-		assert.NotEmpty(t, drill.Transactions)
-		assert.Len(t, drill.Transactions, txN)
+		assert.NotEmpty(t, driller.Transactions)
+		assert.Len(t, driller.Transactions, txN)
 
 		// And
 		t.Run("Nonce is increasing", func(t *testing.T) {
-			firstNonce := drill.Transactions[0].Nonce()
+			firstNonce := driller.Transactions[0].Nonce()
 
-			for index, transaction := range drill.Transactions {
+			for index, transaction := range driller.Transactions {
 				nonce := transaction.Nonce()
 				assert.Equal(t, nonce, uint64(index+int(firstNonce)))
 			}
@@ -70,14 +69,14 @@ func TestSendPreparedTransactionsForPool(t *testing.T) {
 		cli.On("EstimateGas", mock.Anything, mock.Anything).Return(uint64(21000), nil)
 		cli.On("SendTransaction", mock.Anything, mock.Anything).Return(nil)
 
-		drill := getDrill(t, cli)
+		driller := getDrill(t, cli)
 		txN := 1000
 
-		err := drill.PrepareTransactionsForPool(big.NewInt(int64(txN)))
+		err := driller.PrepareTransactionsForPool(big.NewInt(int64(txN)))
 		assert.Nil(t, err)
 
 		// When
-		err, finalReport := drill.SendBulkOfSignedTransaction(txN)
+		err, finalReport := driller.SendBulkOfSignedTransaction(txN)
 
 		// Then
 		assert.Nil(t, err)

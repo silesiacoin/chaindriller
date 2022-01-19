@@ -4,10 +4,12 @@ import (
 	"crypto/ecdsa"
 	"flag"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -35,6 +37,7 @@ type Config struct {
 	privateKey    *ecdsa.PrivateKey
 	routinesN     int
 	txN           int64
+	dev           bool
 }
 
 func main() {
@@ -45,6 +48,7 @@ func main() {
 	flag.StringVar(&cfg.ipcEndpoint, "endpoint", cfg.ipcEndpoint, "provide a eth1 client endpoint")
 	flag.IntVar(&cfg.routinesN, "routines", 1000, "provide a go routines maximum count")
 	flag.Int64Var(&cfg.txN, "txs", 1000, "provide a transactions count")
+	flag.BoolVar(&cfg.dev, "dev", cfg.dev, "provide if geth is in dev mode, if so then some checks are disabled")
 	flag.Parse()
 
 	fmt.Printf("\n Running chaindriller on endpoint: %s with max. routines: %d", cfg.ipcEndpoint, cfg.routinesN)
@@ -55,17 +59,29 @@ func main() {
 	}
 
 	d := drill.New(ethCli, cfg.privateKey, cfg.addressToSend, big.NewInt(cfg.chainID))
-	d.RoutinesN = cfg.routinesN
+	d.Dev = cfg.dev
 
 	err = d.PrepareTransactionsForPool(big.NewInt(cfg.txN))
 	if nil != err {
+		panic(fmt.Sprintf("Invalid transactions prepare, err: %s", err.Error()))
+	}
+
+	bulkSendStart := time.Now()
+	err, report := d.SendBulkOfSignedTransaction(cfg.routinesN)
+
+	if nil != err {
+		panic(fmt.Sprintf("Invalid bulk send, err: %s", err.Error()))
 		return
 	}
 
-	err, _ = d.SendBulkOfSignedTransaction()
-	if nil != err {
-		return
-	}
+	bulkSendStop := time.Now()
+	bulkSendInterval := time.Duration(bulkSendStop.Unix()-bulkSendStart.Unix()) * time.Second
+
+	log.Printf("\n errorsLen: %d \n", len(report.Errors))
+	log.Printf("\n txLen: %d \n", len(report.Transactions))
+	log.Printf("\n txHashesLen: %d \n", len(report.TransactionHashes))
+	log.Printf("\n bulkSendDuration: %s", bulkSendInterval.String())
+	log.Printf("\n bulkSendTPS: %v", float64(len(report.Transactions))/bulkSendInterval.Seconds())
 }
 
 func getConfig() (cfg Config) {
@@ -80,7 +96,7 @@ func getConfig() (cfg Config) {
 	cfg.chainID, err = strconv.ParseInt(chainIDstr, 10, 64)
 
 	if err != nil {
-		fmt.Printf("\n %v is not a valid int, defaulting to %d err: %s \n", chainIDstr, defaultChainID, err.Error())
+		fmt.Printf("\n chainID %v is not a valid int, defaulting to %d err: %s \n", chainIDstr, defaultChainID, err.Error())
 		cfg.chainID = defaultChainID
 	}
 
