@@ -32,22 +32,25 @@ func New(
 	ethereumCli EthCli,
 	privateKey *ecdsa.PrivateKey,
 	addressToSend common.Address,
-	chainID *big.Int) *Driller {
+	chainID *big.Int,
+) *Driller {
 	return &Driller{
 		cli:          ethereumCli,
 		PrivKey:      privateKey,
 		AddrToSend:   addressToSend,
 		ChainID:      chainID,
 		Transactions: make([]*types.Transaction, 0),
+		Dev:          false,
 	}
 }
 
 type Driller struct {
 	AddrToSend   common.Address
 	ChainID      *big.Int
-	cli          EthCli
 	PrivKey      *ecdsa.PrivateKey
 	Transactions []*types.Transaction
+	Dev          bool
+	cli          EthCli
 }
 
 func (d *Driller) PrepareTransactionsForPool(txN *big.Int) (err error) {
@@ -63,13 +66,13 @@ func (d *Driller) PrepareTransactionsForPool(txN *big.Int) (err error) {
 		return
 	}
 
-	// Simple check if we have balance in this account
-	if balance.Cmp(big.NewInt(0)) < 1 {
+	// Simple check if we have balance in this account, omit this check if geth is in dev mode
+	if !d.Dev && balance.Cmp(big.NewInt(0)) < 1 {
 		err = fmt.Errorf("not enough balance in account address: %s", fromAddress)
 		return
 	}
 
-	fmt.Printf("\n Balance of account: %d WEI", balance.Int64())
+	fmt.Printf("\n Balance of account: %d WEI \n", balance.Int64())
 
 	// This is a little bit naive, but may work for the experiment if account is not used elsewhere
 	nonce, err := d.cli.PendingNonceAt(ctx, fromAddress)
@@ -79,14 +82,17 @@ func (d *Driller) PrepareTransactionsForPool(txN *big.Int) (err error) {
 
 	// lets make a tiny amount to send to not burn everything at once
 	amount := big.NewInt(1)
-
 	gasPrice, err := d.cli.SuggestGasPrice(ctx)
 	if nil != err {
 		return
 	}
 
 	dummyToken := make([]byte, 16)
-	rand.Read(dummyToken)
+	_, err = rand.Read(dummyToken)
+
+	if nil != err {
+		return
+	}
 
 	// Call gas limit only once
 	gasLimit, err := d.cli.EstimateGas(ctx, ethereum.CallMsg{
@@ -98,23 +104,34 @@ func (d *Driller) PrepareTransactionsForPool(txN *big.Int) (err error) {
 		Data:     dummyToken,
 	})
 
+	//if d.Dev && nil != err {
+	//	fmt.Println("fallback of dev flag, still preparing a transactions")
+	//	err = nil
+	//}
+
 	if nil != err {
 		return
 	}
 
+	pubKey := d.PrivKey.Public()
+	publicKeyECDSA, ok := pubKey.(*ecdsa.PublicKey)
+
+	if !ok {
+		return fmt.Errorf("could not cast pubkey to publicKeyECDSA")
+	}
+
+	fmt.Printf("\n Sender address: %s \n", crypto.PubkeyToAddress(*publicKeyECDSA))
+
 	//This is very static, should be changed to above
-	gasLimit = gasLimit * 10
+	//gasLimit = gasLimit * 10
 
 	// Fill the transactions, maybe sign them and then push?
 	for index := 0; index < int(txN.Int64()); index++ {
-		// Make random bytes to differ tx (May not work as expected)
-		//token := make([]byte, 16)
-		//rand.Read(token)
 		addrToSend := d.AddrToSend
 		currentTx := types.NewTransaction(nonce, addrToSend, amount, gasLimit, gasPrice, make([]byte, 0))
 		signedTx, err := types.SignTx(currentTx, types.NewEIP155Signer(d.ChainID), d.PrivKey)
 
-		if index%10 == 0 {
+		if index%500 == 0 {
 			fmt.Printf("\n Signed new tx, %d", index)
 		}
 
